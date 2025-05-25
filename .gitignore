@@ -1,0 +1,11 @@
+# python venv
+.venv/
+.git/
+
+# air and tailwind
+tmp/
+tailwindcss
+
+# sqlite stuff
+*.db
+*.db-journal

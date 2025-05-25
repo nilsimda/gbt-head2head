@@ -1,0 +1,65 @@
+package components
+
+templ Layout() {
+	<!DOCTYPE html>
+	<html>
+		<head>
+			<title>GBT - Head 2 Head</title>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<link href="/assets/css/styles.css" rel="stylesheet"/>
+			<script src="/assets/js/htmx.min.js"></script>
+		</head>
+		<body>
+			<main class="flex flex-col items-center justify-center">
+				<h1 class="font-bold text-3xl">GBT Head 2 Head</h1>
+				{ children... }
+			</main>
+		</body>
+	</html>
+}
+
+templ PlayerHead2Head() {
+	@Layout() {
+		<div class="flex justify-around w-screen">
+			<div class="max-w-sm flex flex-col">
+				<label for="player-1-input">Player 1</label>
+				<input
+					list="player-1-search-results"
+					class="form-control max-w-sm"
+					type="search"
+					name="player-1-search"
+					placeholder="Begin Typing To Search Players..."
+					hx-post="/player-search"
+					hx-trigger="input changed delay:500ms, keyup[key=='Enter'], load"
+					hx-target="#player-1-search-results"
+				/>
+				<datalist id="player-1-search-results"></datalist>
+			</div>
+			<p>vs.</p>
+			<div class="max-w-sm flex flex-col">
+				<label for="player-2-input">Player 2</label>
+				<input
+					list="player-2-search-results"
+					class="form-control"
+					type="search"
+					name="player-2-search"
+					placeholder="Begin Typing To Search Players..."
+					hx-post="/player-search"
+					hx-trigger="input changed delay:500ms, keyup[key=='Enter'], load"
+					hx-target="#player-2-search-results"
+				/>
+				<datalist id="player-2-search-results">
+					<option value="1">Test</option>
+				</datalist>
+			</div>
+		</div>
+	}
+}
+
+templ TeamHead2Head() {
+	@Layout() {
+		<input id="team1-input" type="search" class="bg-zinc-100"/>
+		<input id="team2-input" type="search" class="bg-zinc-100"/>
+	}
+}
