@@ -16,13 +16,13 @@ import (
 )
 
 type Config struct {
-	BaseURL           string
-	ConcurrencyLimit  int
-	RequestTimeout    time.Duration
-	RetryDelay        time.Duration
-	RateLimitDelay    time.Duration
-	SeasonStart       int
-	SeasonEnd         int
+	BaseURL          string
+	ConcurrencyLimit int
+	RequestTimeout   time.Duration
+	RetryDelay       time.Duration
+	RateLimitDelay   time.Duration
+	SeasonStart      int
+	SeasonEnd        int
 }
 
 type DVVScraper struct {
@@ -44,6 +44,9 @@ func NewDVVScraper(dbPath string) (*DVVScraper, error) {
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
+	currentYear := time.Now().Year()
+	seasonEnd := currentYear % 100 // Convert 2025 -> 25, 2026 -> 26, etc.
+
 	config := Config{
 		BaseURL:          "https://beach.volleyball-verband.de/public/",
 		ConcurrencyLimit: 15,
@@ -51,7 +54,7 @@ func NewDVVScraper(dbPath string) (*DVVScraper, error) {
 		RetryDelay:       1 * time.Second,
 		RateLimitDelay:   100 * time.Millisecond,
 		SeasonStart:      3,
-		SeasonEnd:        25,
+		SeasonEnd:        seasonEnd,
 	}
 
 	httpClient := &http.Client{
@@ -100,12 +103,12 @@ func (s *DVVScraper) getTournamentURLsForSeason(season int, tournamentUrls map[s
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		s.logger.Printf("Bad status code for season %d: %d", season, resp.StatusCode)
 		return
 	}
-	
+
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
 	if err != nil {
 		s.logger.Printf("Error parsing season %d HTML: %v", season, err)
@@ -590,7 +593,7 @@ func (s *DVVScraper) extractTournaments(tournamentUrls map[string]struct{}, resu
 
 			// Check if we should scrape this tournament based on its end date
 			if !s.db.ShouldScrapeTournament(tournament.ID, tournament.DateTo) {
-				s.logger.Printf("Tournament %s (%s) not ready for scraping or recently scraped, skipping", 
+				s.logger.Printf("Tournament %s (%s) not ready for scraping or recently scraped, skipping",
 					tournament.ID, tournament.Title)
 				return
 			}
@@ -623,7 +626,7 @@ func (s *DVVScraper) extractMatches(results *ScrapingResults) (map[string]struct
 	for _, tournament := range results.Tournaments {
 		if tournament.HauptfeldGamesURL != "" {
 			matchWg.Add(1)
-			go s.extractMatchesForType(tournament, "Hauptfeld", tournament.HauptfeldGamesURL, 
+			go s.extractMatchesForType(tournament, "Hauptfeld", tournament.HauptfeldGamesURL,
 				matchChan, teamURLSet, &matchMu, &matchWg, matchSemaphore)
 		}
 
@@ -650,9 +653,9 @@ func (s *DVVScraper) extractMatches(results *ScrapingResults) (map[string]struct
 }
 
 func (s *DVVScraper) extractMatchesForType(tournament models.Tournament, fieldType, gamesURL string,
-	matchChan chan<- []models.Match, teamURLSet map[string]struct{}, 
+	matchChan chan<- []models.Match, teamURLSet map[string]struct{},
 	matchMu *sync.Mutex, matchWg *sync.WaitGroup, semaphore chan struct{}) {
-	
+
 	defer matchWg.Done()
 	semaphore <- struct{}{}
 	defer func() { <-semaphore }()
