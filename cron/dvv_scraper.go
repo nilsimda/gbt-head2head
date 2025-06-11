@@ -390,8 +390,7 @@ func (s *DVVScraper) extractMatchesFromGamesURL(gamesURL string, tournamentID st
 				// Extract duration
 				if cells.Length() > 8 {
 					durationText := strings.TrimSpace(cells.Eq(8).Text())
-					durationParts := strings.Split(durationText, ",")
-					for _, part := range durationParts {
+					for part := range strings.SplitSeq(durationText, ",") {
 						part = strings.TrimSpace(part)
 						if duration, err := strconv.Atoi(part); err == nil {
 							match.Duration = append(match.Duration, duration)

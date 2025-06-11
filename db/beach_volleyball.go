@@ -434,8 +434,7 @@ func (db *BeachVolleyballDB) GetHead2HeadMatches(team1ID, team2ID string) ([]mod
 
 		// Parse duration if available
 		if durationStr.Valid && durationStr.String != "" {
-			parts := strings.Split(durationStr.String, ",")
-			for _, part := range parts {
+			for part := range strings.SplitSeq(durationStr.String, ",") {
 				if duration, err := strconv.Atoi(strings.TrimSpace(part)); err == nil {
 					m.Duration = append(m.Duration, duration)
 				}
