@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
@@ -12,8 +11,8 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
+	"github.com/nilsimda/gbt-head2head/db"
 	"github.com/nilsimda/gbt-head2head/models"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 type Config struct {
@@ -29,7 +28,7 @@ type Config struct {
 type DVVScraper struct {
 	config     Config
 	httpClient *http.Client
-	db         *sql.DB
+	db         *db.BeachVolleyballDB
 	logger     *log.Logger
 }
 
@@ -40,9 +39,9 @@ type ScrapingResults struct {
 }
 
 func NewDVVScraper(dbPath string) (*DVVScraper, error) {
-	db, err := sql.Open("sqlite3", dbPath)
+	bvDB, err := db.NewBeachVolleyballDB(dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
 	config := Config{
@@ -67,7 +66,7 @@ func NewDVVScraper(dbPath string) (*DVVScraper, error) {
 	return &DVVScraper{
 		config:     config,
 		httpClient: httpClient,
-		db:         db,
+		db:         bvDB,
 		logger:     log.New(log.Writer(), "[DVV-Scraper] ", log.LstdFlags),
 	}, nil
 }
@@ -538,185 +537,7 @@ func (s *DVVScraper) extractTeamData(teamURL string) models.Team {
 	return team
 }
 
-func (s *DVVScraper) initDatabase() error {
-	// Create tables
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS tournaments (
-			id TEXT PRIMARY KEY,
-			title TEXT,
-			year INTEGER,
-			location TEXT,
-			gender TEXT,
-			type TEXT,
-			date_from TEXT,
-			date_to TEXT,
-			organizer TEXT,
-			venue TEXT,
-			prize_money TEXT,
-			teams_hauptfeld INTEGER,
-			teams_qualifikation INTEGER,
-			teams_from_qualifikation INTEGER,
-			qualifikation_games_url TEXT,
-			hauptfeld_games_url TEXT,
-			dvv_url TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS players (
-			id TEXT PRIMARY KEY,
-			first_name TEXT,
-			last_name TEXT,
-			license_id TEXT,
-			club TEXT,
-			gender TEXT,
-			image_url TEXT,
-			dvv_url TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-		)`,
-		`CREATE TABLE IF NOT EXISTS teams (
-			id TEXT PRIMARY KEY,
-			name TEXT,
-			player1_id TEXT,
-			player2_id TEXT,
-			seed INTEGER,
-			dvv_url TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (player1_id) REFERENCES players (id),
-			FOREIGN KEY (player2_id) REFERENCES players (id)
-		)`,
-		`CREATE TABLE IF NOT EXISTS matches (
-			id TEXT PRIMARY KEY,
-			match_number INTEGER,
-			date TEXT,
-			time TEXT,
-			court INTEGER,
-			team1_id TEXT,
-			team2_id TEXT,
-			score TEXT,
-			duration TEXT,
-			winner_team_id TEXT,
-			loser_team_id TEXT,
-			round TEXT,
-			placement TEXT,
-			tournament_id TEXT,
-			field_type TEXT,
-			dvv_url TEXT,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-			FOREIGN KEY (team1_id) REFERENCES teams (id),
-			FOREIGN KEY (team2_id) REFERENCES teams (id),
-			FOREIGN KEY (tournament_id) REFERENCES tournaments (id)
-		)`,
-		`CREATE INDEX IF NOT EXISTS idx_tournaments_year ON tournaments (year)`,
-		`CREATE INDEX IF NOT EXISTS idx_tournaments_location ON tournaments (location)`,
-		`CREATE INDEX IF NOT EXISTS idx_tournaments_gender ON tournaments (gender)`,
-		`CREATE INDEX IF NOT EXISTS idx_players_name ON players (last_name, first_name)`,
-		`CREATE INDEX IF NOT EXISTS idx_players_license ON players (license_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_teams_players ON teams (player1_id, player2_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_matches_tournament ON matches (tournament_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_matches_teams ON matches (team1_id, team2_id)`,
-		`CREATE INDEX IF NOT EXISTS idx_matches_date ON matches (date)`,
-	}
-
-	for _, query := range queries {
-		if _, err := s.db.Exec(query); err != nil {
-			return fmt.Errorf("failed to execute query: %w", err)
-		}
-	}
-
-	return nil
-}
-
-func (s *DVVScraper) tournamentExists(tournamentID string) bool {
-	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM tournaments WHERE id = ?", tournamentID).Scan(&count)
-	return err == nil && count > 0
-}
-
-func (s *DVVScraper) teamExists(teamID string) bool {
-	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM teams WHERE id = ?", teamID).Scan(&count)
-	return err == nil && count > 0
-}
-
-func (s *DVVScraper) playerExists(playerID string) bool {
-	var count int
-	err := s.db.QueryRow("SELECT COUNT(*) FROM players WHERE id = ?", playerID).Scan(&count)
-	return err == nil && count > 0
-}
-
-func (s *DVVScraper) insertTournament(t models.Tournament) error {
-	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO tournaments 
-		(id, title, year, location, gender, type, date_from, date_to, organizer, venue, 
-		 prize_money, teams_hauptfeld, teams_qualifikation, teams_from_qualifikation,
-		 qualifikation_games_url, hauptfeld_games_url, dvv_url, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-		t.ID, t.Title, t.Year, t.Location, t.Gender, t.Type, t.DateFrom, t.DateTo,
-		t.Organizer, t.Venue, t.PrizeMoney, t.TeamsHauptfeld, t.TeamsQualifikation,
-		t.TeamsFromQualifikation, t.QualifikationGamesURL, t.HauptfeldGamesURL, t.DVVURL)
-	return err
-}
-
-func (s *DVVScraper) insertPlayer(p models.Player) error {
-	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO players 
-		(id, first_name, last_name, license_id, club, gender, image_url, dvv_url, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-		p.ID, p.FirstName, p.LastName, p.LicenseID, p.Club, p.Gender, p.ImageURL, p.DVVURL)
-	return err
-}
-
-func (s *DVVScraper) insertTeam(t models.Team) error {
-	// Insert players first
-	if t.Player1.ID != "" {
-		if err := s.insertPlayer(t.Player1); err != nil {
-			return fmt.Errorf("failed to insert player1: %w", err)
-		}
-	}
-	if t.Player2.ID != "" {
-		if err := s.insertPlayer(t.Player2); err != nil {
-			return fmt.Errorf("failed to insert player2: %w", err)
-		}
-	}
-
-	// Insert team
-	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO teams 
-		(id, name, player1_id, player2_id, seed, dvv_url, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-		t.ID, t.Name, t.Player1ID, t.Player2ID, t.Seed, t.DVVURL)
-	return err
-}
-
-func (s *DVVScraper) insertMatch(m models.Match) error {
-	durationStr := ""
-	if len(m.Duration) > 0 {
-		parts := make([]string, len(m.Duration))
-		for i, d := range m.Duration {
-			parts[i] = strconv.Itoa(d)
-		}
-		durationStr = strings.Join(parts, ",")
-	}
-
-	_, err := s.db.Exec(`
-		INSERT OR REPLACE INTO matches 
-		(id, match_number, date, time, court, team1_id, team2_id, score, duration,
-		 winner_team_id, loser_team_id, round, placement, tournament_id, field_type, dvv_url, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-		m.ID, m.MatchNumber, m.Date, m.Time, m.Court, m.Team1.ID, m.Team2.ID, m.Score,
-		durationStr, m.WinnerTeamID, m.LoserTeamID, m.Round, m.Placement, m.TournamentID,
-		m.FieldType, m.DVVURL)
-	return err
-}
-
 func (s *DVVScraper) ScrapeAll() (*ScrapingResults, error) {
-	if err := s.initDatabase(); err != nil {
-		return nil, fmt.Errorf("failed to initialize database: %w", err)
-	}
-
 	s.logger.Println("Starting tournament URL collection...")
 	tournamentUrls, err := s.collectTournamentURLs()
 	if err != nil {
@@ -761,21 +582,21 @@ func (s *DVVScraper) extractTournaments(tournamentUrls map[string]struct{}, resu
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			idRegex := regexp.MustCompile(`id=(\d+)`)
-			var tournamentID string
-			if idMatch := idRegex.FindStringSubmatch(url); len(idMatch) > 1 {
-				tournamentID = idMatch[1]
-			}
-
-			if tournamentID != "" && s.tournamentExists(tournamentID) {
-				s.logger.Printf("Tournament %s already exists, skipping", tournamentID)
+			// Extract basic tournament data first to check the date
+			tournament := s.extractTournamentData(url)
+			if tournament.Title == "" {
 				return
 			}
 
-			tournament := s.extractTournamentData(url)
-			if tournament.Title != "" {
-				tournamentChan <- tournament
+			// Check if we should scrape this tournament based on its end date
+			if !s.db.ShouldScrapeTournament(tournament.ID, tournament.DateTo) {
+				s.logger.Printf("Tournament %s (%s) not ready for scraping or recently scraped, skipping", 
+					tournament.ID, tournament.Title)
+				return
 			}
+
+			s.logger.Printf("Scraping tournament %s (%s)", tournament.ID, tournament.Title)
+			tournamentChan <- tournament
 		}(tournamentURL)
 	}
 
@@ -784,7 +605,7 @@ func (s *DVVScraper) extractTournaments(tournamentUrls map[string]struct{}, resu
 
 	for tournament := range tournamentChan {
 		results.Tournaments = append(results.Tournaments, tournament)
-		if err := s.insertTournament(tournament); err != nil {
+		if err := s.db.InsertTournament(tournament); err != nil {
 			s.logger.Printf("Failed to insert tournament %s: %v", tournament.ID, err)
 		}
 	}
@@ -819,7 +640,7 @@ func (s *DVVScraper) extractMatches(results *ScrapingResults) (map[string]struct
 	for matches := range matchChan {
 		results.Matches = append(results.Matches, matches...)
 		for _, match := range matches {
-			if err := s.insertMatch(match); err != nil {
+			if err := s.db.InsertMatch(match); err != nil {
 				s.logger.Printf("Failed to insert match %s: %v", match.ID, err)
 			}
 		}
@@ -872,7 +693,7 @@ func (s *DVVScraper) extractTeams(teamURLSet map[string]struct{}, results *Scrap
 				teamID = idMatch[1]
 			}
 
-			if teamID != "" && s.teamExists(teamID) {
+			if teamID != "" && s.db.TeamExists(teamID) {
 				return
 			}
 
@@ -888,7 +709,7 @@ func (s *DVVScraper) extractTeams(teamURLSet map[string]struct{}, results *Scrap
 
 	for team := range teamChan {
 		results.Teams = append(results.Teams, team)
-		if err := s.insertTeam(team); err != nil {
+		if err := s.db.InsertTeam(team); err != nil {
 			s.logger.Printf("Failed to insert team %s: %v", team.ID, err)
 		}
 	}
